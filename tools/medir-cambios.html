@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Medir cambios de marcha</title>
+<style>
+  body { background: #0b0c0f; color: #e8ebef; font: 15px/1.45 system-ui, sans-serif; padding: 20px; }
+  h1 { font-size: 20px; margin-bottom: 6px; }
+  p { color: #9aa1ab; margin-bottom: 14px; max-width: 70ch; }
+  button, select { font: inherit; padding: 10px 16px; border-radius: 8px; border: 1px solid #2a2f37; background: #161a20; color: #e8ebef; cursor: pointer; margin-right: 8px; }
+  table { border-collapse: collapse; margin-top: 16px; font-variant-numeric: tabular-nums; }
+  th, td { border-bottom: 1px solid #222730; padding: 6px 10px; text-align: right; }
+  th:first-child, td:first-child { text-align: left; }
+  .ok { color: #35d07f; } .bad { color: #ff6b6b; }
+  canvas { display: block; margin-top: 16px; width: 100%; max-width: 1100px; height: 260px; background: #000; border-radius: 8px; }
+  pre { color: #9aa1ab; margin-top: 12px; }
+</style>
+</head>
+<body>
+<h1>Medir cambios de marcha</h1>
+<p>Guion fijo grabado sin tiempo real: 1 s de ralentí, a fondo hasta los 15 s, soltar y frenar a −3 m/s² desde los 16 s. Se miden el volumen en cada cambio, lo que tardan en caer las rpm, el "brap" y los chasquidos.</p>
+<select id="car"><option value="gt3rs">911 GT3 RS</option><option value="m3">M3 Competition</option></select>
+<button id="run">Medir</button>
+<button id="play" disabled>Escuchar esta prueba</button>
+<canvas id="plot" width="2200" height="520"></canvas>
+<div id="out"></div>
+
+<script src="../js/engine-dsp.js"></script>
+<script src="../js/cars.js"></script>
+<script src="../js/drivetrain.js"></script>
+<script src="../js/engine-sound.js"></script>
+<script>
+const DUR = 28, STEP = 0.025;
+// guion: ralentí 1 s · a fondo hasta 14 s (aceleración tipo GT3 para pasar por más marchas) · soltar · frenar −5 m/s² desde 15 s
+const GAS0 = 1, GAS1 = 14, BRAKE0 = 15;
+
+// Renderiza el guion y devuelve { buf, log, shifts }
+async function render(carKey, { brap = true, sr = 48000 } = {}) {
+  const car = { ...CARS[carKey], brap: brap && !!CARS[carKey].brap };
+  const ctx = new OfflineAudioContext(2, Math.ceil(DUR * sr), sr);
+  const eng = new EngineSound(ctx, car, { volume: 0.5 });
+  await eng.start();
+  const drive = new Drivetrain(car);
+  let speed = 0, thr = 0; const log = [], shifts = [];
+  for (let i = 0; i < DUR / STEP; i++) {
+    const t = i * STEP;
+    ctx.suspend(t).then(() => {
+      const gas = t >= GAS0 && t < GAS1, brake = t >= BRAKE0;
+      const a = gas ? 8 * (1 - speed / 88) : brake ? -5 : -(0.35 + speed * 0.012);
+      speed = Math.max(0, speed + a * STEP);
+      thr += ((gas ? 1 : 0) - thr) * Math.min(1, STEP * 9);
+      const prev = log.length ? log[log.length - 1].rpm : car.idle;
+      const s = drive.step(STEP, speed, thr, t * 1000);
+      eng.update({ rpm: s.rpm, throttle: s.load, gear: s.gear, speed, overrun: s.overrun, pedal: thr, blip: s.blip });
+      if (s.shift) { eng.shift(s.shift, { throttle: thr }); shifts.push({ t, dir: s.shift, gear: s.gear, rpm0: prev, thr }); }
+      log.push({ t, rpm: s.rpm, gear: s.gear, kmh: speed * 3.6, blip: s.blip });
+      ctx.resume();
+    });
+  }
+  const buf = await ctx.startRendering();
+  return { buf, log, shifts, sr };
+}
+
+function analyze({ buf, log, shifts, sr }) {
+  const L = buf.getChannelData(0), R = buf.getChannelData(1), n = L.length;
+  const x = new Float32Array(n); for (let i = 0; i < n; i++) x[i] = (L[i] + R[i]) / 2;
+  const rmsDb = (a, b) => { a = Math.max(0, Math.floor(a * sr)); b = Math.min(n, Math.floor(b * sr)); let s = 0; for (let i = a; i < b; i++) s += x[i] * x[i]; return 10 * Math.log10(s / Math.max(1, b - a) + 1e-12); };
+  // envolvente: ventanas de 30 ms cada 10 ms (con 10 ms la irregularidad natural del motor ya da ~1 dB)
+  const env = []; for (let t = 0; t < DUR; t += 0.01) env.push(rmsDb(t - 0.01, t + 0.02));
+  const envAt = (t0, t1) => env.slice(Math.round(t0 * 100), Math.round(t1 * 100));
+  // chasquidos: salto entre muestras vs. el percentil 99,9 de toda la prueba
+  const d = new Float32Array(n - 1); for (let i = 1; i < n; i++) d[i - 1] = Math.abs(x[i] - x[i - 1]);
+  const sorted = Float32Array.from(d).sort(); const p999 = sorted[Math.floor(sorted.length * 0.999)];
+  const maxJump = (t0, t1) => { let m = 0; for (let i = Math.floor(t0 * sr); i < Math.min(n - 1, t1 * sr); i++) m = Math.max(m, d[i]); return m / p999; };
+  // irregularidad en ventanas de 2 ms (el "brap" la sube)
+  const rough = (t0, t1) => { const v = []; for (let t = t0; t < t1; t += 0.002) v.push(Math.pow(10, rmsDb(t, t + 0.002) / 20)); const m = v.reduce((a, b) => a + b) / v.length; return Math.sqrt(v.reduce((a, b) => a + (b - m) ** 2, 0) / v.length) / m; };
+
+  const rows = shifts.map(s => {
+    const before = envAt(s.t - 0.15, s.t - 0.03), during = envAt(s.t, s.t + 0.2);
+    const lvl0 = before.reduce((a, b) => a + b, 0) / before.length, lvlMin = Math.min(...during);
+    // nivel ya asentado en la marcha nueva (la parte "normal" de la bajada, por tener menos rpm)
+    const after = envAt(s.t + 0.25, s.t + 0.4), lvl1 = after.reduce((a, b) => a + b, 0) / after.length;
+    // rpm: tiempo hasta recorrer el 90 % del cambio
+    const i0 = log.findIndex(l => l.t >= s.t), rEnd = log[Math.min(log.length - 1, i0 + 16)].rpm;
+    let settle = null;
+    for (let i = i0; i < log.length && i < i0 + 40; i++) if (Math.abs(log[i].rpm - s.rpm0) >= 0.9 * Math.abs(rEnd - s.rpm0)) { settle = log[i].t - s.t + STEP; break; }
+    const brapR = rough(s.t + 0.005, s.t + 0.085) / rough(s.t - 0.1, s.t - 0.02);
+    return { ...s, rpmEnd: rEnd, drop: lvl0 - lvlMin, dip: lvl1 - lvlMin, settle, click: maxJump(s.t - 0.01, s.t + 0.2), brapR };
+  });
+  // referencia: el mismo cálculo de "hueco" a mitad de camino entre cambios (sin cambio)
+  const ups = shifts.filter(s => s.dir === "up").map(s => s.t);
+  const base = [], baseClick = [], baseRough = [];
+  for (let i = 1; i < ups.length; i++) {
+    const t = (ups[i - 1] + ups[i]) / 2, during = envAt(t, t + 0.2), after = envAt(t + 0.25, t + 0.4);
+    base.push(after.reduce((a, b) => a + b, 0) / after.length - Math.min(...during));
+    baseClick.push(maxJump(t - 0.01, t + 0.2));
+    baseRough.push(rough(t + 0.005, t + 0.085) / rough(t - 0.1, t - 0.02));
+  }
+  return { rows, env, p999, base, baseClick, baseRough };
+}
+
+let lastBuf = null;
+async function medirCambios(carKey = "gt3rs") {
+  const A = await render(carKey, { brap: true });
+  const B = CARS[carKey].brap ? await render(carKey, { brap: false }) : null;
+  const a = analyze(A), b = B ? analyze(B) : null;
+  lastBuf = A.buf;
+  const up = a.rows.filter(r => r.dir === "up" && r.thr > 0.5), down = a.rows.filter(r => r.dir === "down");
+  const upNo = b ? b.rows.filter(r => r.dir === "up" && r.thr > 0.5) : [];
+  return {
+    subidas: up.map((r, i) => ({ t: +r.t.toFixed(2), marcha: `${r.gear - 1}→${r.gear}`, rpm: `${Math.round(r.rpm0)}→${Math.round(r.rpmEnd)}`,
+      caida_dB: +r.drop.toFixed(2), hueco_dB: +r.dip.toFixed(2), hueco_sin_brap: upNo[i] ? +upNo[i].dip.toFixed(2) : null,
+      rpm_90pct_s: r.settle && +r.settle.toFixed(3), chasquido_x: +r.click.toFixed(2),
+      brap_irregularidad: +r.brapR.toFixed(2), sin_brap: upNo[i] ? +upNo[i].brapR.toFixed(2) : null })),
+    bajadas: down.map(r => ({ t: +r.t.toFixed(2), marcha: `${r.gear + 1}→${r.gear}`, rpm: `${Math.round(r.rpm0)}→${Math.round(r.rpmEnd)}`,
+      kmh: Math.round(A.log.find(l => l.t >= r.t).kmh), caida_dB: +r.drop.toFixed(2), chasquido_x: +r.click.toFixed(2) })),
+    sin_cambio_hueco_dB: a.base.map(v => +v.toFixed(2)),
+    sin_cambio_chasquido_x: a.baseClick.map(v => +v.toFixed(2)),
+    sin_cambio_irregularidad: a.baseRough.map(v => +v.toFixed(2)),
+    log: A.log,
+  };
+}
+window.medirCambios = medirCambios;
+
+// ---------- página ----------
+function table(title, rows) {
+  if (!rows.length) return `<h3>${title}: ninguna</h3>`;
+  const keys = Object.keys(rows[0]);
+  return `<h3 style="margin-top:18px">${title}</h3><table><tr>${keys.map(k => `<th>${k}</th>`).join("")}</tr>` +
+    rows.map(r => `<tr>${keys.map(k => `<td>${r[k] ?? "—"}</td>`).join("")}</tr>`).join("") + "</table>";
+}
+function plot(log) {
+  const c = document.getElementById("plot"), g = c.getContext("2d"), W = c.width, H = c.height;
+  g.clearRect(0, 0, W, H); g.strokeStyle = "#222"; g.lineWidth = 1;
+  for (let r = 0; r <= 9000; r += 1000) { const y = H - r / 9500 * H; g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke(); }
+  g.strokeStyle = "#f2d21b"; g.lineWidth = 3; g.beginPath();
+  log.forEach((l, i) => { const xx = l.t / DUR * W, y = H - l.rpm / 9500 * H; i ? g.lineTo(xx, y) : g.moveTo(xx, y); }); g.stroke();
+  g.strokeStyle = "#2fb4ff"; g.lineWidth = 2; g.beginPath();
+  log.forEach((l, i) => { const xx = l.t / DUR * W, y = H - l.kmh / 250 * H; i ? g.lineTo(xx, y) : g.moveTo(xx, y); }); g.stroke();
+  g.fillStyle = "#9aa1ab"; g.font = "22px system-ui"; g.fillText("amarillo: rpm (0–9.500) · azul: km/h (0–250)", 16, 30);
+}
+document.getElementById("run").onclick = async () => {
+  const out = document.getElementById("out"); out.innerHTML = "<p>Midiendo…</p>";
+  const r = await medirCambios(document.getElementById("car").value);
+  plot(r.log);
+  out.innerHTML = table("Subidas a fondo", r.subidas) + table("Bajadas", r.bajadas) +
+    `<pre>caida_dB: cuánto baja el volumen desde antes del cambio hasta el punto más bajo (incluye la bajada normal por menos rpm)
+hueco_dB: cuánto queda por debajo del nivel ya asentado en la marcha nueva = lo que añade el cambio (objetivo ≤ 1,3 dB)
+rpm_90pct_s: segundos hasta que las rpm recorren el 90 % de la caída (objetivo ≈ 0,1 s)
+chasquido_x: salto máximo entre muestras ÷ percentil 99,9 de la prueba (≤ 1,5 = sin chasquido)
+brap_irregularidad: irregularidad del volumen en los 85 ms del corte ÷ antes del cambio (sin_brap = misma prueba sin corte)</pre>`;
+  document.getElementById("play").disabled = false;
+};
+document.getElementById("play").onclick = async () => {
+  if (!lastBuf) return;
+  const ctx = new AudioContext(); await ctx.resume();
+  const s = ctx.createBufferSource(); s.buffer = lastBuf; s.connect(ctx.destination); s.start();
+  s.onended = () => ctx.close();
+};
+</script>
+</body>
+</html>

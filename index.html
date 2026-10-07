@@ -1,0 +1,635 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<title>Tesla Motor Sound</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:ital,wght@0,400;0,500;0,600;0,700;0,800;1,700;1,800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #060709; --panel: #0f1115; --panel2: #14171c; --line: #20242b; --fg: #eef1f4; --dim: #8a929d;
+    --accent: #f2d21b; --ink: #121212; --ok: #35d07f; --err: #ff5a5a;
+  }
+  body[data-car="m3"] { --accent: #2fb4ff; --ink: #001522; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body { background: var(--bg); color: var(--fg); font-family: "Barlow Semi Condensed", system-ui, sans-serif;
+         -webkit-tap-highlight-color: transparent; -webkit-user-select: none; user-select: none; }
+  button { font: inherit; color: inherit; cursor: pointer; }
+  button:focus-visible, input:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+  .app { max-width: 1600px; margin: 0 auto; padding: 16px; display: grid; gap: 14px; }
+
+  /* cabecera */
+  header { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  .brand { font-weight: 800; font-size: 22px; letter-spacing: 3px; text-transform: uppercase; margin-right: auto; }
+  .brand span { color: var(--accent); }
+  .tabs { display: flex; gap: 6px; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 6px; }
+  .tab { border: 0; background: transparent; border-radius: 11px; padding: 10px 22px; text-align: left; min-height: 64px; }
+  .tab b { display: block; font-size: 22px; font-weight: 700; letter-spacing: .5px; }
+  .tab small { display: block; font-size: 14px; color: var(--dim); }
+  .tab.on { background: var(--panel2); box-shadow: inset 0 0 0 2px var(--accent); }
+  .tab.on small { color: var(--fg); opacity: .75; }
+  .pill { display: inline-flex; align-items: center; gap: 8px; padding: 10px 16px; border-radius: 999px; background: var(--panel);
+          border: 1px solid var(--line); font-size: 16px; font-weight: 600; color: var(--dim); }
+  .pill i { width: 10px; height: 10px; border-radius: 50%; background: #3a3f47; }
+  .pill.ok { color: var(--fg); } .pill.ok i { background: var(--ok); box-shadow: 0 0 10px var(--ok); }
+  .pill.err { color: var(--err); } .pill.err i { background: var(--err); }
+  .pill.wait i { background: var(--accent); animation: pulse 1s infinite; }
+  @keyframes pulse { 50% { opacity: .3; } }
+
+  /* tablero */
+  .cluster { position: relative; background: #000; border-radius: 24px; border: 1px solid #15181d; overflow: hidden;
+             aspect-ratio: 16 / 6.2; box-shadow: 0 30px 80px rgba(0,0,0,.6); }
+  .cluster canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+
+  /* controles */
+  .controls { display: grid; grid-template-columns: 1.15fr 1fr 1fr; gap: 14px; }
+  @media (max-width: 980px) { .controls { grid-template-columns: 1fr; } }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 18px; display: grid; gap: 14px; align-content: start; }
+  .label { font-size: 13px; font-weight: 600; color: var(--dim); text-transform: uppercase; letter-spacing: 2.5px; }
+  .start { width: 100%; min-height: 84px; border: 0; border-radius: 14px; background: var(--accent); color: var(--ink);
+           font-size: 26px; font-weight: 800; letter-spacing: 3px; display: flex; align-items: center; justify-content: center; gap: 14px;
+           box-shadow: 0 10px 30px color-mix(in srgb, var(--accent) 25%, transparent); }
+  .start svg { width: 30px; height: 30px; }
+  .start.on { background: #262a31; color: var(--fg); box-shadow: none; }
+  .status { font-size: 17px; color: var(--dim); min-height: 24px; }
+  .status.ok { color: var(--ok); } .status.err { color: var(--err); }
+  .seg { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; background: var(--bg); border-radius: 14px; padding: 6px; border: 1px solid var(--line); }
+  .seg button { min-height: 60px; border: 0; border-radius: 10px; background: transparent; font-size: 19px; font-weight: 600; color: var(--dim); }
+  .seg button.on { background: var(--panel2); color: var(--fg); box-shadow: inset 0 0 0 2px var(--accent); }
+  .pedals { display: grid; grid-template-columns: 1fr 2fr; gap: 10px; }
+  .pedal { min-height: 96px; border-radius: 14px; font-size: 20px; font-weight: 800; letter-spacing: 1px; touch-action: none;
+           background: var(--bg); border: 2px solid var(--line); }
+  .pedal.gas { border-color: var(--accent); color: var(--accent); }
+  .pedal.down { background: var(--accent); color: var(--ink); }
+  .hint { font-size: 15px; color: var(--dim); line-height: 1.45; }
+  .vol { display: flex; align-items: center; gap: 14px; }
+  .vol svg { width: 26px; height: 26px; flex: none; color: var(--dim); }
+  input[type=range] { width: 100%; height: 40px; accent-color: var(--accent); }
+  .btn { min-height: 64px; border-radius: 14px; border: 1px solid var(--line); background: var(--panel2); font-size: 19px; font-weight: 600;
+         display: flex; align-items: center; justify-content: center; gap: 12px; }
+  .btn svg { width: 24px; height: 24px; }
+  .btn.primary { border-color: var(--accent); color: var(--accent); }
+
+  /* ===== modo solo tablero ===== */
+  body.dash { overflow: hidden; background: #000; }
+  body.dash .app { max-width: none; padding: 0; }
+  body.dash header, body.dash .controls { display: none; }
+  body.dash .cluster { position: fixed; inset: 0; border: 0; border-radius: 0; aspect-ratio: auto; box-shadow: none; z-index: 5; }
+  .overlay { position: fixed; left: 0; right: 0; bottom: 0; z-index: 6; display: none; align-items: center; justify-content: center; gap: 12px;
+             flex-wrap: wrap; padding: 22px 16px calc(22px + env(safe-area-inset-bottom, 0px));
+             background: linear-gradient(transparent, rgba(0,0,0,.92) 45%); opacity: 0; pointer-events: none; transition: opacity .25s; }
+  body.dash .overlay { display: flex; }
+  body.dash.ui .overlay { opacity: 1; pointer-events: auto; }
+  .overlay .btn { padding: 0 26px; background: rgba(20,23,28,.9); }
+  .overlay .vol { width: min(340px, 100%); background: rgba(20,23,28,.9); border: 1px solid var(--line); border-radius: 14px; padding: 0 18px; min-height: 64px; }
+  [hidden] { display: none !important; }
+  @media (prefers-reduced-motion: reduce) { .pill.wait i { animation: none; } .overlay { transition: none; } }
+</style>
+</head>
+<body data-car="gt3rs">
+<div class="app">
+  <header>
+    <div class="brand">Tesla <span>Motor</span> Sound</div>
+    <div class="tabs" role="tablist" aria-label="Coche">
+      <button class="tab" data-car="gt3rs" role="tab"><b>911 GT3 RS</b><small>Bóxer 6 · 9.000 rpm · PDK 7</small></button>
+      <button class="tab" data-car="m3" role="tab"><b>M3 Competition</b><small>6 en línea biturbo · 7.250 rpm</small></button>
+    </div>
+    <div class="pill" id="gpsPill"><i></i><span>GPS apagado</span></div>
+  </header>
+
+  <div class="cluster" id="cluster"><canvas id="dash" aria-label="Tablero"></canvas></div>
+
+  <div class="controls">
+    <div class="panel">
+      <div class="label">Motor</div>
+      <button id="start" class="start">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 3v8"/><path d="M6.3 6.8a8 8 0 1 0 11.4 0"/></svg>
+        <span>ARRANCAR MOTOR</span>
+      </button>
+      <div class="status" id="status">Pulsa “Arrancar motor” para empezar.</div>
+    </div>
+
+    <div class="panel">
+      <div class="label">Velocidad desde</div>
+      <div class="seg">
+        <button id="modeGps" class="on">GPS · conduciendo</button>
+        <button id="modeSim">Prueba · aparcado</button>
+      </div>
+      <div class="pedals" id="pedals" hidden>
+        <button class="pedal" id="brake">FRENO</button>
+        <button class="pedal gas" id="gas">ACELERADOR</button>
+      </div>
+      <p class="hint" id="hint">Con GPS el sonido sigue la velocidad real del coche, con alrededor de 1 s de retraso. Al arrancar se pone el tablero en pantalla completa.</p>
+    </div>
+
+    <div class="panel">
+      <div class="label">Sonido y pantalla</div>
+      <div class="vol">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/><path d="M19 6a8.5 8.5 0 0 1 0 12"/></svg>
+        <input type="range" id="vol" min="0" max="100" value="75" aria-label="Volumen">
+      </div>
+      <button class="btn primary" id="dashBtn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
+        Solo tablero
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Controles flotantes del modo solo tablero (aparecen al tocar la pantalla) -->
+<div class="overlay" id="overlay">
+  <button class="btn" id="oStart"><span>Apagar motor</span></button>
+  <div class="vol">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/></svg>
+    <input type="range" id="oVol" min="0" max="100" value="75" aria-label="Volumen">
+  </div>
+  <button class="btn" id="oSwap">Cambiar coche</button>
+  <button class="btn primary" id="oExit">Salir del tablero</button>
+</div>
+
+<!-- Módulos: js/engine-dsp.js (síntesis), js/cars.js (datos), js/drivetrain.js (caja), js/engine-sound.js (audio de cabina) -->
+<script src="js/engine-dsp.js"></script>
+<script src="js/cars.js"></script>
+<script src="js/drivetrain.js"></script>
+<script src="js/engine-sound.js"></script>
+<script>
+// ================== ESTADO ==================
+let carKey = lsGet("car") || "gt3rs"; if (!CARS[carKey]) carKey = "gt3rs";
+let CAR = CARS[carKey];
+const drive = new Drivetrain(CAR);
+let mode = "gps", running = false;
+let speed = 0, gpsSpeed = 0, accel = 0, throttle = 0, gasHeld = false, brakeHeld = false;
+let rpm = CAR.idle, gear = 1;
+let trip = 0, startedAt = 0, watchId = null, lastFix = null, wakeLock = null, gpsInfo = { state: "off", acc: 0 };
+let ctx = null, engine = null;
+
+function lsGet(k) { try { return localStorage.getItem(k); } catch { return null; } }
+function lsSet(k, v) { try { localStorage.setItem(k, v); } catch {} }
+const $ = id => document.getElementById(id);
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+// ================== GPS ==================
+function haversine(a, b, c, d) {
+  const R = 6371000, r = Math.PI / 180, x = (c - a) * r, y = (d - b) * r;
+  const h = Math.sin(x / 2) ** 2 + Math.cos(a * r) * Math.cos(c * r) * Math.sin(y / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+function setGps(state, text) {
+  gpsInfo.state = state;
+  const p = $("gpsPill"); p.className = "pill" + (state === "ok" ? " ok" : state === "err" ? " err" : state === "wait" ? " wait" : "");
+  p.querySelector("span").textContent = text;
+}
+function startGps() {
+  if (!navigator.geolocation) { setGps("err", "Sin GPS"); return setStatus("Este navegador no da acceso al GPS.", "err"); }
+  setGps("wait", "Buscando GPS…"); setStatus("Esperando señal GPS…");
+  watchId = navigator.geolocation.watchPosition(pos => {
+    const now = performance.now();
+    let v = pos.coords.speed;
+    if ((v == null || isNaN(v)) && lastFix) {
+      const dts = (pos.timestamp - lastFix.ts) / 1000;
+      v = dts > 0 ? haversine(lastFix.lat, lastFix.lon, pos.coords.latitude, pos.coords.longitude) / dts : 0;
+    }
+    v = Math.max(0, v || 0);
+    if (lastFix) {
+      const dts = (now - lastFix.now) / 1000;
+      if (dts > 0.2) accel = accel * 0.35 + ((v - lastFix.v) / dts) * 0.65;
+    }
+    lastFix = { now, ts: pos.timestamp, lat: pos.coords.latitude, lon: pos.coords.longitude, v };
+    gpsSpeed = v; gpsInfo.acc = Math.round(pos.coords.accuracy);
+    setGps("ok", `GPS ±${gpsInfo.acc} m`); setStatus("GPS conectado. El sonido sigue tu velocidad.", "ok");
+  }, err => {
+    setGps("err", "GPS sin permiso");
+    setStatus(err.code === 1 ? "Permiso de ubicación denegado. Permítelo en el navegador y recarga la página." : "Error de GPS: " + err.message, "err");
+  }, { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 });
+}
+function stopGps() { if (watchId != null) navigator.geolocation.clearWatch(watchId); watchId = null; lastFix = null; setGps("off", "GPS apagado"); }
+
+// ================== BUCLE ==================
+let last = performance.now();
+function tick() {
+  const now = performance.now(), dt = Math.min(0.1, (now - last) / 1000); last = now;
+  if (mode === "sim") {
+    // Física aproximada de un Model 3 SR+ (0-100 en 5,6 s, punta 225 km/h, frenada regenerativa)
+    let a = gasHeld ? 4.8 * (1 - speed / 63) : -(0.35 + speed * 0.012);
+    if (brakeHeld) a = -7;
+    speed = Math.max(0, speed + a * dt);
+    throttle += ((gasHeld ? 1 : 0) - throttle) * Math.min(1, dt * 9);
+  } else {
+    // Entre lecturas del GPS (≈1 por segundo) se extrapola con la aceleración medida
+    const age = lastFix ? Math.min(1.2, (now - lastFix.now) / 1000) : 0;
+    const predicted = Math.max(0, gpsSpeed + accel * age);
+    speed += (predicted - speed) * Math.min(1, dt * 4);
+    // acelerador estimado: 3 m/s² = a fondo; frenando = suelto; a velocidad constante ≈ 0,12
+    const want = accel > 0.25 ? Math.max(0.2, clamp(accel / 3.0, 0, 1)) : (accel < -0.4 ? 0 : (speed > 2 ? 0.12 : 0));
+    throttle += (want - throttle) * Math.min(1, dt * 5);
+    if (lastFix && now - lastFix.now > 4000) { gpsSpeed *= 0.97; accel *= 0.9; }
+  }
+  trip += speed * dt / 1000;
+
+  const s = drive.step(dt, speed, throttle, now);
+  rpm = s.rpm; gear = s.gear;
+  if (engine) {
+    engine.update({ rpm: s.rpm, throttle: s.load, gear: s.gear, speed, overrun: s.overrun, pedal: throttle, blip: s.blip });
+    if (s.shift) engine.shift(s.shift, { throttle });
+  }
+}
+setInterval(tick, 25);
+
+// ================== TABLEROS ==================
+// Diseño en un lienzo lógico de 1600 × 600; en pantallas más altas (modo solo tablero) se centra
+// y las franjas de arriba/abajo muestran estado del GPS, hora y viaje.
+const cv = $("dash"), g = cv.getContext("2d");
+const DW = 1600, DHC = 600;
+let VW = DW, VH = DHC, OX = 0, OY = 0, K = 1;
+function sizeCanvas() {
+  const r = cv.getBoundingClientRect(); if (!r.width || !r.height) return;
+  const s = Math.min(2, window.devicePixelRatio || 1);
+  cv.width = Math.round(r.width * s); cv.height = Math.round(r.height * s);
+  K = Math.min(cv.width / DW, cv.height / DHC);
+  VW = cv.width / K; VH = cv.height / K; OX = (VW - DW) / 2; OY = (VH - DHC) / 2;
+}
+new ResizeObserver(sizeCanvas).observe($("cluster"));
+sizeCanvas();
+
+const F = (w, px, it) => `${it ? "italic " : ""}${w} ${px}px "Barlow Semi Condensed", system-ui, sans-serif`;
+const rad = d => d * Math.PI / 180;
+const clock = () => { const d = new Date(); return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0"); };
+function powerAt(r) {
+  const p = CAR.power;
+  for (let i = 1; i < p.length; i++) if (r <= p[i][0]) { const [r0, v0] = p[i - 1], [r1, v1] = p[i]; return v0 + (v1 - v0) * (r - r0) / (r1 - r0); }
+  return p[p.length - 1][1];
+}
+let shownRpm = 0, shownKmh = 0, blink = 0;
+const gearLabel = (prefix = "") => speed < 1 && throttle < 0.05 ? "N" : prefix + gear;
+
+// ---------- Porsche 911 GT3 RS ----------
+function drawGT3() {
+  g.fillStyle = "#000"; g.fillRect(-OX, -OY, VW, VH);
+  const kmh = shownKmh, r = shownRpm, cx = 800, cy = 300;
+  glassPanel(16, 62, 600, 476); glassPanel(984, 62, 600, 476);
+
+  // --- izquierda: reloj y viaje ---
+  ring(160, 300, 118, "#33363c", 3);
+  g.fillStyle = "#f4f4f4"; g.font = F(600, 54); g.fillText(clock(), 160, 266);
+  g.fillStyle = "#33363c"; g.fillRect(95, 302, 130, 2);
+  g.fillStyle = "#d8d8d8"; g.font = F(600, 32); g.fillText(trip.toFixed(1) + " km", 160, 338);
+
+  // --- velocímetro 0-350 ---
+  const sx = 432, sy = 300, sr = 192, s0 = 125, sSpan = 290, sMax = 350;
+  ring(sx, sy, sr, "#262930", 3);
+  for (let v = 0; v <= sMax; v += 10) {
+    const a = rad(s0 + sSpan * v / sMax), big = v % 50 === 0;
+    g.strokeStyle = big ? "#f5a623" : "#8a5d16"; g.lineWidth = big ? 4 : 2;
+    radial(sx, sy, a, sr - (big ? 26 : 14), sr - 4);
+    if (big && v > 0) { g.fillStyle = "#e9e9e9"; g.font = F(600, 26); g.fillText(v, sx + Math.cos(a) * (sr - 50), sy + Math.sin(a) * (sr - 50)); }
+  }
+  const sa = rad(s0 + sSpan * clamp(kmh, 0, sMax) / sMax);
+  g.save(); g.lineCap = "round"; g.strokeStyle = "rgba(255,154,0,.25)"; g.lineWidth = 6;
+  g.beginPath(); g.arc(sx, sy, sr - 9, rad(s0), sa); g.stroke();
+  g.shadowColor = "#ff9a00"; g.shadowBlur = 16; g.strokeStyle = "#ff9a00"; g.lineWidth = 7;
+  radial(sx, sy, sa, sr * 0.56, sr - 8); g.restore();
+  g.fillStyle = "#e9e9e9"; g.font = F(600, 30); g.fillText("Aerodynamics", sx, sy - 36);
+  g.fillStyle = "#b9bcc1"; g.font = F(400, 26); g.fillText("Low Downforce", sx, sy - 2);
+  g.fillStyle = "#bdbdbd"; g.font = F(600, 28); g.fillText((2247.8 + trip).toFixed(1) + " km", sx, sy + 122);
+
+  // --- cuentavueltas central amarillo ---
+  const t0 = 120, tSpan = 300, tMax = 10000, R = 268;
+  // bisel metálico
+  const bez = g.createLinearGradient(0, cy - R - 16, 0, cy + R + 16);
+  bez.addColorStop(0, "#7a7d83"); bez.addColorStop(0.45, "#2b2d31"); bez.addColorStop(0.7, "#1d1e21"); bez.addColorStop(1, "#5d6066");
+  g.fillStyle = bez; g.beginPath(); g.arc(cx, cy, R + 14, 0, Math.PI * 2); g.fill();
+  const face = g.createRadialGradient(cx, cy - 60, 20, cx, cy, R);
+  face.addColorStop(0, "#17181b"); face.addColorStop(1, "#08090a");
+  g.fillStyle = face; g.beginPath(); g.arc(cx, cy, R, 0, Math.PI * 2); g.fill();
+  // marcas exteriores
+  for (let v = 0; v <= tMax; v += 250) {
+    const a = rad(t0 + tSpan * v / tMax), major = v % 1000 === 0;
+    g.strokeStyle = v >= CAR.red ? "#ff1a0e" : major ? "#ffffff" : "#c9ae12"; g.lineWidth = major ? 5 : 2;
+    radial(cx, cy, a, R - (major ? 30 : 16), R - 4);
+  }
+  // zona roja
+  g.strokeStyle = "#e10600"; g.lineWidth = 12; g.beginPath(); g.arc(cx, cy, R - 40, rad(t0 + tSpan * CAR.red / tMax), rad(t0 + tSpan)); g.stroke();
+  // anillo amarillo con volumen
+  const yl = g.createLinearGradient(0, cy - R, 0, cy + R); yl.addColorStop(0, "#ffe03a"); yl.addColorStop(1, "#d8b70e");
+  g.strokeStyle = yl; g.lineWidth = 64; g.beginPath(); g.arc(cx, cy, R - 80, rad(t0), rad(t0 + tSpan)); g.stroke();
+  g.strokeStyle = "rgba(0,0,0,.28)"; g.lineWidth = 2;
+  g.beginPath(); g.arc(cx, cy, R - 112, rad(t0), rad(t0 + tSpan)); g.stroke();
+  g.beginPath(); g.arc(cx, cy, R - 48, rad(t0), rad(t0 + tSpan)); g.stroke();
+  g.fillStyle = "#1c1c1c"; g.font = F(700, 42);
+  for (let k = 0; k <= 10; k++) { const a = rad(t0 + tSpan * k / 10); g.fillText(k, cx + Math.cos(a) * (R - 80), cy + Math.sin(a) * (R - 80) + 2); }
+  // disco interior
+  const inner = g.createRadialGradient(cx, cy - 50, 10, cx, cy, R - 112); inner.addColorStop(0, "#1d1e22"); inner.addColorStop(1, "#040404");
+  g.fillStyle = inner; g.beginPath(); g.arc(cx, cy, R - 113, 0, Math.PI * 2); g.fill();
+  g.fillStyle = "#8f9297"; g.font = F(800, 46, true); g.fillText("GT3 RS", cx, cy - 72);
+  g.fillStyle = "#ffffff"; g.font = F(700, 100); g.fillText(Math.round(kmh), cx - 22, cy + 66);
+  g.fillStyle = "#cfcfcf"; g.font = F(600, 24); g.fillText("km/h", cx - 22, cy + 126);
+  // PRND + marcha
+  const gl = gearLabel();
+  ["P", "R", "N", "D"].forEach((L, i) => { g.fillStyle = (L === "D" && gl !== "N") || (L === "N" && gl === "N") ? "#ff1a0e" : "#4d5055"; g.font = F(700, 20); g.fillText(L, cx + 114, cy + 26 + i * 22); });
+  g.fillStyle = "#f2d21b"; g.font = F(800, 58); g.fillText(gl, cx + 78, cy + 60);
+  // luces de cambio
+  const lit = clamp((r - (CAR.upFull - 1600)) / 1600, 0, 1), flash = r > CAR.upFull - 120 && throttle > 0.5;
+  for (let i = 0; i < 10; i++) {
+    const a = rad(-130 + i * 8.9), on = flash ? blink % 2 === 0 : lit * 10 > i;
+    const col = flash ? "#2f7bff" : i < 5 ? "#35d07f" : i < 8 ? "#f2d21b" : "#ff1a0e";
+    g.save(); if (on) { g.shadowColor = col; g.shadowBlur = 14; }
+    g.strokeStyle = on ? col : "#191b1f"; g.lineWidth = 11; g.beginPath(); g.arc(cx, cy, R + 30, a, a + rad(6.5)); g.stroke(); g.restore();
+  }
+  // aguja afilada
+  const na = rad(t0 + tSpan * clamp(r, 0, tMax) / tMax);
+  needle(cx, cy, na, R - 20, 30, "#f2d21b");
+  const cap = g.createRadialGradient(cx - 7, cy - 7, 2, cx, cy, 26); cap.addColorStop(0, "#e2e3e5"); cap.addColorStop(1, "#45474c");
+  g.fillStyle = cap; g.beginPath(); g.arc(cx, cy, 24, 0, Math.PI * 2); g.fill();
+  g.fillStyle = "#8f9297"; g.font = F(400, 16); g.fillText("1/min x 1000", cx, cy + R - 14);
+
+  // --- curva de potencia ---
+  const px = 1210, py = 300;
+  ring(px, py, 192, "#262930", 3);
+  g.fillStyle = "#f0f0f0"; g.font = F(600, 32); g.fillText("Rendimiento", px, py - 120);
+  g.fillStyle = "#b9bcc1"; g.font = F(400, 26); g.fillText("Potencia", px, py - 86);
+  const gx0 = px - 136, gx1 = px + 136, gy0 = py + 70, gh = 132, pMax = 400;
+  const X = rv => gx0 + (gx1 - gx0) * rv / 10000, Y = pv => gy0 - gh * pv / pMax;
+  // área recorrida
+  const area = g.createLinearGradient(0, gy0 - gh, 0, gy0); area.addColorStop(0, "rgba(242,210,27,.35)"); area.addColorStop(1, "rgba(242,210,27,0)");
+  g.fillStyle = area; g.beginPath(); g.moveTo(X(1000), gy0);
+  for (let rv = 1000; rv <= clamp(r, 1000, CAR.limiter); rv += 100) g.lineTo(X(rv), Y(powerAt(rv)));
+  g.lineTo(X(clamp(r, 1000, CAR.limiter)), gy0); g.closePath(); g.fill();
+  for (let rv = 500; rv <= CAR.limiter; rv += 500) {
+    g.strokeStyle = rv >= CAR.red ? "#e10600" : rv <= r ? "#e8e8e8" : "#3f4248"; g.lineWidth = 6;
+    line(X(rv), gy0, X(rv), Y(powerAt(rv)));
+  }
+  g.strokeStyle = "#ffffff"; g.lineWidth = 3; g.beginPath();
+  for (let rv = 1000; rv <= CAR.limiter; rv += 100) rv === 1000 ? g.moveTo(X(rv), Y(powerAt(rv))) : g.lineTo(X(rv), Y(powerAt(rv)));
+  g.stroke();
+  const pr = clamp(r, 1000, CAR.limiter);
+  g.save(); g.shadowColor = "#f2d21b"; g.shadowBlur = 12; g.fillStyle = "#f2d21b"; g.beginPath(); g.arc(X(pr), Y(powerAt(pr)), 9, 0, Math.PI * 2); g.fill(); g.restore();
+  g.font = F(600, 18);
+  for (let k = 0; k <= 10; k++) { g.fillStyle = k * 1000 >= CAR.red ? "#ff1a0e" : "#d0d0d0"; g.fillText(k, X(k * 1000), gy0 + 18); }
+  g.fillStyle = "#9da0a5"; g.font = F(400, 18); g.fillText("1/min x 1000", px, gy0 + 44);
+  g.fillStyle = "#ffffff"; g.font = F(700, 26); g.fillText(Math.round(powerAt(r) * 1.36) + " CV", px, gy0 + 82);
+
+  // --- temperatura de aceite ---
+  const ox = 1452, oy = 300, orr = 118, oil = running ? clamp(60 + (performance.now() - startedAt) / 1000 * 0.4, 60, 96) : 60;
+  ring(ox, oy, orr, "#33363c", 3);
+  g.strokeStyle = "#e8e8e8"; g.lineWidth = 8; g.beginPath(); g.arc(ox, oy, orr - 18, rad(200), rad(340)); g.stroke();
+  g.strokeStyle = "#e10600"; g.beginPath(); g.arc(ox, oy, orr - 18, rad(322), rad(340)); g.stroke();
+  const oa = rad(200 + 140 * (oil - 60) / 60);
+  g.strokeStyle = "#f5a623"; g.lineWidth = 6; radial(ox, oy, oa, orr - 40, orr - 6);
+  g.fillStyle = "#e9e9e9"; g.font = F(600, 24); g.fillText("60", ox - 70, oy - 30); g.fillText("120", ox + 70, oy - 30);
+  g.font = F(700, 42); g.fillText(Math.round(oil) + "°", ox, oy + 30);
+  g.fillStyle = "#9da0a5"; g.font = F(400, 20); g.fillText("Aceite", ox, oy + 70);
+}
+
+// ---------- BMW M3 Competition ----------
+function drawM3() {
+  g.fillStyle = "#000"; g.fillRect(-OX, -OY, VW, VH);
+  // luz ambiente azul a la izquierda y roja a la derecha
+  const glowL = g.createRadialGradient(330, 300, 20, 330, 300, 520); glowL.addColorStop(0, "rgba(30,110,255,.13)"); glowL.addColorStop(1, "rgba(30,110,255,0)");
+  const glowR = g.createRadialGradient(1270, 300, 20, 1270, 300, 520); glowR.addColorStop(0, "rgba(255,30,60,.12)"); glowR.addColorStop(1, "rgba(255,30,60,0)");
+  g.fillStyle = glowL; g.fillRect(-OX, -OY, VW, VH); g.fillStyle = glowR; g.fillRect(-OX, -OY, VW, VH);
+  const kmh = shownKmh, r = shownRpm;
+
+  // galones laterales
+  const L = [[700, 110], [270, 110], [150, 300], [270, 490], [700, 490]];
+  const Rr = L.map(([x, y]) => [DW - x, y]);
+  const chev = L.slice(1, 4), chevR = Rr.slice(1, 4);
+  g.lineJoin = "round"; g.lineCap = "round";
+  polyline(L, "#0b1726", 18); polyline(Rr, "#260b10", 18);
+  polyline(L.map(([x, y]) => [x + (x < 400 ? 20 : 0), y + (y < 300 ? 20 : y > 300 ? -20 : 0)]), "#14304d", 2);
+  polyline(Rr.map(([x, y]) => [x - (x > 1200 ? 20 : 0), y + (y < 300 ? 20 : y > 300 ? -20 : 0)]), "#4a1820", 2);
+  // velocidad: recorre el galón izquierdo de abajo arriba
+  const lg = g.createLinearGradient(0, 490, 0, 110); lg.addColorStop(0, "#1c5cff"); lg.addColorStop(1, "#38e1ff");
+  progress([...chev].reverse(), clamp(kmh / 300, 0, 1), lg, 18, "#2fb4ff");
+  // rpm: galón derecho
+  const rg = g.createLinearGradient(0, 490, 0, 110); rg.addColorStop(0, "#ff2b5e"); rg.addColorStop(1, "#ff1a1a");
+  progress([...chevR].reverse(), clamp(r / 8000, 0, 1), rg, 18, "#ff2244");
+  progressRange([...chevR].reverse(), CAR.red / 8000, 1, "rgba(255,40,40,.5)", 6);
+  g.font = F(600, 24);
+  for (let k = 1; k <= 8; k++) { const [x, y] = along([...chevR].reverse(), k / 8); g.fillStyle = k * 1000 >= CAR.red ? "#ff3b3b" : "#d9dde3"; g.fillText(k, x - 42, y); }
+  for (let k = 0; k <= 3; k++) { const [x, y] = along([...chev].reverse(), k / 3); g.fillStyle = "#cfe9ff"; g.fillText(k * 100, x + 48, y); }
+
+  // velocidad digital
+  g.fillStyle = "#ffffff"; g.font = F(700, 156); g.fillText(Math.round(kmh), 470, 296);
+  g.fillStyle = "#38c6ff"; g.font = F(600, 28); g.fillText("km/h", 470, 388);
+  // rpm digital
+  g.fillStyle = "#ffffff"; g.font = F(700, 66); g.fillText(Math.round(r / 50) * 50, 1130, 282);
+  g.fillStyle = "#ff4058"; g.font = F(600, 24); g.fillText("1/min", 1130, 334);
+  g.fillStyle = "#8d96a3"; g.font = F(600, 22); g.fillText(Math.round(powerAt(r) * 1.36) + " CV", 1130, 400);
+
+  // logo M
+  const mx = 800, my = 188;
+  [["#81c4ff", 0], ["#16588e", 1], ["#e7222e", 2]].forEach(([c, i]) => {
+    g.fillStyle = c; g.beginPath(); const x = mx - 94 + i * 22;
+    g.moveTo(x + 20, my - 34); g.lineTo(x + 34, my - 34); g.lineTo(x + 14, my + 34); g.lineTo(x, my + 34); g.closePath(); g.fill();
+  });
+  g.fillStyle = "#ffffff"; g.font = F(800, 94, true); g.fillText("M", mx + 30, my + 4);
+
+  // marcha
+  g.fillStyle = "#ffffff"; g.font = F(700, 116); g.fillText(gearLabel("M"), 800, 342);
+  g.fillStyle = "#8d96a3"; g.font = F(600, 22); g.fillText("MARCHA", 800, 410);
+
+  // luces de cambio M (convergen hacia el centro)
+  const lit = clamp((r - (CAR.upFull - 1500)) / 1500, 0, 1), flash = r > CAR.upFull - 100 && throttle > 0.5;
+  for (let i = 0; i < 7; i++) {
+    const on = flash ? blink % 2 === 0 : lit * 7 > i;
+    const col = flash ? "#ff1a1a" : i < 3 ? "#ffd000" : i < 5 ? "#ff8a00" : "#ff1a1a";
+    g.save(); if (on) { g.shadowColor = col; g.shadowBlur = 14; }
+    g.fillStyle = on ? col : "#15171c";
+    rrect(560 + i * 34, 50, 26, 13, 3); g.fill(); rrect(DW - 560 - i * 34 - 26, 50, 26, 13, 3); g.fill(); g.restore();
+  }
+
+  // barra inferior
+  g.fillStyle = "#16181d"; g.fillRect(250, 520, 1100, 2);
+  g.textAlign = "left"; g.fillStyle = "#cfd6df"; g.font = F(600, 26); g.fillText("▲ " + trip.toFixed(1) + " km", 270, 556);
+  g.textAlign = "center"; g.fillStyle = "#38c6ff"; g.fillText("M1 · SPORT+", 800, 556);
+  g.textAlign = "right"; g.fillStyle = "#cfd6df"; g.fillText(clock(), 1330, 556);
+  g.textAlign = "center";
+}
+
+// ---------- franjas extra en pantallas altas (solo tablero) ----------
+let dashSince = 0;
+function drawBands() {
+  if (OY < 50) return;
+  const top = -OY / 2, bottom = DHC + OY / 2, col = carKey === "m3" ? "#38c6ff" : "#f2d21b";
+  g.font = F(600, 30);
+  // izquierda: estado del GPS
+  g.textAlign = "left";
+  const st = mode === "sim" ? ["MODO PRUEBA", col] : gpsInfo.state === "ok" ? [`GPS ±${gpsInfo.acc} m`, "#35d07f"] : gpsInfo.state === "wait" ? ["BUSCANDO GPS…", "#f2d21b"] : gpsInfo.state === "err" ? ["GPS SIN PERMISO", "#ff5a5a"] : ["GPS APAGADO", "#6b717b"];
+  g.fillStyle = st[1]; g.beginPath(); g.arc(40, top, 8, 0, Math.PI * 2); g.fill();
+  g.fillText(st[0], 60, top + 1);
+  // centro: coche
+  g.textAlign = "center"; g.fillStyle = "#6b717b"; g.fillText(CAR.name.toUpperCase(), 800, top + 1);
+  // derecha: hora
+  g.textAlign = "right"; g.fillStyle = "#cfd3d8"; g.fillText(clock(), DW - 40, top + 1);
+  // abajo: ayuda los primeros segundos
+  const t = (performance.now() - dashSince) / 1000;
+  if (document.body.classList.contains("dash") && t < 6) {
+    g.globalAlpha = clamp(6 - t, 0, 1) * 0.8; g.textAlign = "center"; g.fillStyle = "#9da0a5"; g.font = F(500, 28);
+    g.fillText("Toca la pantalla para ver los controles", 800, bottom); g.globalAlpha = 1;
+  }
+  g.textAlign = "center";
+}
+
+// ---------- utilidades de dibujo ----------
+function line(x1, y1, x2, y2) { g.beginPath(); g.moveTo(x1, y1); g.lineTo(x2, y2); g.stroke(); }
+function radial(cx, cy, a, r0, r1) { line(cx + Math.cos(a) * r0, cy + Math.sin(a) * r0, cx + Math.cos(a) * r1, cy + Math.sin(a) * r1); }
+function ring(x, y, r, c, w) { g.strokeStyle = c; g.lineWidth = w; g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.stroke(); }
+function rrect(x, y, w, h, r) {
+  g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r);
+  g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath();
+}
+function glassPanel(x, y, w, h) {
+  const gr = g.createLinearGradient(0, y, 0, y + h); gr.addColorStop(0, "#15171b"); gr.addColorStop(0.55, "#0a0b0d"); gr.addColorStop(1, "#050506");
+  g.fillStyle = gr; rrect(x, y, w, h, 28); g.fill();
+  g.strokeStyle = "rgba(255,255,255,.06)"; g.lineWidth = 2; g.stroke();
+  const gl = g.createLinearGradient(x, y, x + w * 0.7, y + h); gl.addColorStop(0, "rgba(255,255,255,.045)"); gl.addColorStop(0.4, "rgba(255,255,255,0)");
+  g.fillStyle = gl; rrect(x, y, w, h, 28); g.fill();
+}
+function needle(cx, cy, a, len, tail, col) {
+  const c = Math.cos(a), s = Math.sin(a), nx = -s, ny = c;
+  g.save(); g.shadowColor = "rgba(0,0,0,.85)"; g.shadowBlur = 12;
+  g.fillStyle = col; g.beginPath();
+  g.moveTo(cx - c * tail + nx * 7, cy - s * tail + ny * 7);
+  g.lineTo(cx + c * len + nx * 1.6, cy + s * len + ny * 1.6);
+  g.lineTo(cx + c * len - nx * 1.6, cy + s * len - ny * 1.6);
+  g.lineTo(cx - c * tail - nx * 7, cy - s * tail - ny * 7); g.closePath(); g.fill();
+  g.restore();
+  g.strokeStyle = "rgba(255,255,255,.85)"; g.lineWidth = 1.6; radial(cx, cy, a, 30, len - 6);
+}
+function polyline(p, c, w) { g.strokeStyle = c; g.lineWidth = w; g.beginPath(); p.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); g.stroke(); }
+function pathLen(p) { let s = 0; for (let i = 1; i < p.length; i++) s += Math.hypot(p[i][0] - p[i - 1][0], p[i][1] - p[i - 1][1]); return s; }
+function along(p, f) {
+  let d = pathLen(p) * f;
+  for (let i = 1; i < p.length; i++) {
+    const l = Math.hypot(p[i][0] - p[i - 1][0], p[i][1] - p[i - 1][1]);
+    if (d <= l) { const k = d / l; return [p[i - 1][0] + (p[i][0] - p[i - 1][0]) * k, p[i - 1][1] + (p[i][1] - p[i - 1][1]) * k]; }
+    d -= l;
+  }
+  return p[p.length - 1];
+}
+function progressRange(p, f0, f1, style, w) {
+  const total = pathLen(p);
+  g.save(); g.strokeStyle = style; g.lineWidth = w; g.setLineDash([0, total * f0, total * (f1 - f0), total * 2]);
+  g.beginPath(); p.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); g.stroke(); g.restore();
+}
+function progress(p, f, style, w, glow) {
+  if (f <= 0.001) return;
+  const total = pathLen(p);
+  g.save(); g.shadowColor = glow; g.shadowBlur = 26; g.strokeStyle = style; g.lineWidth = w; g.lineCap = "butt";
+  g.setLineDash([total * f, total * 2]);
+  g.beginPath(); p.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); g.stroke(); g.restore();
+}
+
+let blinkT = 0;
+function frame(ts) {
+  shownRpm += (rpm - shownRpm) * 0.35;
+  shownKmh += (speed * 3.6 - shownKmh) * 0.3;
+  if (ts - blinkT > 90) { blink++; blinkT = ts; }
+  g.setTransform(K, 0, 0, K, OX * K, OY * K);
+  g.textAlign = "center"; g.textBaseline = "middle";
+  carKey === "m3" ? drawM3() : drawGT3();
+  drawBands();
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+// ================== CONTROLES ==================
+function setStatus(t, cls) { $("status").textContent = t; $("status").className = "status" + (cls ? " " + cls : ""); }
+function selectCar(k) {
+  carKey = k; CAR = CARS[k]; lsSet("car", k);
+  document.body.dataset.car = k;
+  document.querySelectorAll(".tab").forEach(b => { b.classList.toggle("on", b.dataset.car === k); b.setAttribute("aria-selected", b.dataset.car === k); });
+  drive.setCar(CAR); gear = 1; rpm = CAR.idle;
+  if (running) { engine?.stop(); startEngine(); }
+}
+async function startEngine() {
+  engine = new EngineSound(ctx, CAR, { volume: $("vol").value / 100 });
+  await engine.start();
+}
+document.querySelectorAll(".tab").forEach(b => b.onclick = () => selectCar(b.dataset.car));
+selectCar(carKey);
+
+function setRunningUi() {
+  $("start").classList.toggle("on", running);
+  $("start").querySelector("span").textContent = running ? "APAGAR MOTOR" : "ARRANCAR MOTOR";
+  $("oStart").querySelector("span").textContent = running ? "Apagar motor" : "Arrancar motor";
+}
+async function toggleEngine() {
+  if (!running) {
+    try {
+      if (!ctx || ctx.state === "closed") ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: "interactive" });
+      await ctx.resume();
+      drive.rpm = CAR.idle * 2.2; startedAt = performance.now(); // pequeño acelerón al arrancar
+      await startEngine();
+    } catch (e) { return setStatus("No se pudo iniciar el audio: " + e.message, "err"); }
+    running = true; setRunningUi();
+    if (mode === "gps") { startGps(); enterDash(); } else setStatus("Modo prueba: mantén pulsado el acelerador.", "ok");
+    try { wakeLock = await navigator.wakeLock?.request("screen"); } catch {}
+  } else {
+    running = false; engine?.stop(); engine = null; stopGps(); setRunningUi();
+    setStatus("Motor apagado."); try { wakeLock?.release(); } catch {}
+  }
+}
+$("start").onclick = toggleEngine;
+$("oStart").onclick = () => { toggleEngine(); showUi(); };
+
+function setMode(m) {
+  mode = m;
+  $("modeGps").classList.toggle("on", m === "gps"); $("modeSim").classList.toggle("on", m === "sim");
+  $("pedals").hidden = m !== "sim";
+  $("hint").textContent = m === "gps"
+    ? "Con GPS el sonido sigue la velocidad real del coche, con alrededor de 1 s de retraso. Al arrancar se pone el tablero en pantalla completa."
+    : "Mantén pulsado el acelerador. En un teclado: flecha arriba acelera y flecha abajo frena.";
+  speed = gpsSpeed = accel = 0;
+  if (running) { if (m === "gps") startGps(); else { stopGps(); setStatus("Modo prueba: mantén pulsado el acelerador.", "ok"); } }
+}
+$("modeGps").onclick = () => setMode("gps");
+$("modeSim").onclick = () => setMode("sim");
+function pedal(el, set) {
+  el.addEventListener("pointerdown", e => { set(true); el.classList.add("down"); el.setPointerCapture(e.pointerId); });
+  ["pointerup", "pointercancel", "lostpointercapture"].forEach(ev => el.addEventListener(ev, () => { set(false); el.classList.remove("down"); }));
+}
+pedal($("gas"), v => gasHeld = v);
+pedal($("brake"), v => brakeHeld = v);
+addEventListener("keydown", e => {
+  if (e.code === "Escape" && document.body.classList.contains("dash")) return exitDash();
+  if (mode !== "sim") return;
+  if (e.code === "ArrowUp" || e.code === "Space") { gasHeld = true; e.preventDefault(); }
+  if (e.code === "ArrowDown") { brakeHeld = true; e.preventDefault(); }
+});
+addEventListener("keyup", e => {
+  if (e.code === "ArrowUp" || e.code === "Space") gasHeld = false;
+  if (e.code === "ArrowDown") brakeHeld = false;
+});
+function setVolume(v) { $("vol").value = v; $("oVol").value = v; engine?.setVolume(v / 100); }
+$("vol").oninput = () => setVolume($("vol").value);
+$("oVol").oninput = () => { setVolume($("oVol").value); showUi(); };
+
+// ---------- modo solo tablero ----------
+let uiTimer = 0;
+function showUi() {
+  document.body.classList.add("ui");
+  clearTimeout(uiTimer); uiTimer = setTimeout(() => document.body.classList.remove("ui"), 4000);
+}
+function enterDash() {
+  document.body.classList.add("dash"); dashSince = performance.now();
+  try { document.documentElement.requestFullscreen?.().catch(() => {}); } catch {}
+  requestAnimationFrame(sizeCanvas);
+}
+function exitDash() {
+  document.body.classList.remove("dash", "ui");
+  try { if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); } catch {}
+  requestAnimationFrame(sizeCanvas);
+}
+$("dashBtn").onclick = enterDash;
+$("oExit").onclick = exitDash;
+$("oSwap").onclick = () => { selectCar(carKey === "m3" ? "gt3rs" : "m3"); showUi(); };
+$("cluster").addEventListener("pointerdown", () => { if (document.body.classList.contains("dash")) showUi(); });
+document.addEventListener("fullscreenchange", () => requestAnimationFrame(sizeCanvas));
+</script>
+</body>
+</html>
