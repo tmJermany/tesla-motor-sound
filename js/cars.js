@@ -12,9 +12,15 @@ window.CARS = {
     gearTop: [72, 115, 156, 197, 235, 272, 296],
     // reducciones del PDK en Sport: soltando y con kickdown (acelerador > 0,85)
     down: { coastRpm: 5000, coastMax: 7600, kickRpm: 6200, kickMax: 8600, kick: 0.85 },
-    blipMs: 160, blipRpm: 280, blip: 0.7, shiftMs: 100, maxKmh: 296,
+    blipMs: 200, blipRpm: 650, blip: 1, shiftMs: 100, maxKmh: 296,   // golpe de gas al reducir más marcado
     brap: true,                     // al subir a fondo: 85 ms cortando 1 de cada 3 explosiones
     tire: 2.307, final: 4.27,       // trasera 335/30 ZR21 · grupo (para el silbido del diferencial)
+    // grabación de cabina a fondo en una marcha (ver audio/LEEME.md); si no está, suena el sintetizado
+    // tirada en banco 1.650 → 8.850 rpm (seg. 366,0–383,3 del vídeo "992 GT3 RS … Akrapovic … DYNO Pulls")
+    recording: { file: "audio/gt3rs.wav", rpmLo: 1650, rpmHi: 8850 },
+    // ralentí real en bucle sin costura (13,7 s, ~1.350 rpm en frío; de "Porsche GT3 RS 992 RALENTI SOUND")
+    idleRec: { file: "audio/gt3rs-ralenti.wav", rpm: 1350 },
+    shiftFeel: 1.6,                 // cuánto se notan los cambios (1 = como el juego)
     power: [[0, 0], [1000, 45], [2000, 95], [3000, 150], [4000, 205], [5000, 260], [6000, 310], [7000, 350], [8000, 378], [8500, 386], [9000, 372]],
     synth: {
       // orden de encendido 1-6-2-4-3-5 → bancadas alternas (orden 1,5 típico del bóxer). Fundamental = orden 3 = rpm/60·3 Hz
@@ -40,14 +46,21 @@ window.CARS = {
     // sin golpe metálico al cambiar (como en el juego)
   },
   m3: {
-    name: "M3 Competition", idle: 700, red: 7200, limiter: 7250, upFull: 7150, upLight: 1900,
-    ratios: [5.0, 3.2, 2.143, 1.72, 1.314, 1.0, 0.822, 0.64], final: 3.15, tire: 2.133,
-    shiftMs: 110, cutMs: 90, blipMs: 180, maxKmh: 290,
+    name: "M3 Competition", idle: 700, red: 7200, limiter: 7250, upFull: 7100, upLight: 1900,
+    // velocidad de cada marcha al corte, de las relaciones reales (5,00 / 3,20 / 2,14 / 1,72 / 1,31 / 1,00 / 0,82 / 0,64 · 3,15 · 285/30 R20)
+    gearTop: [59, 91, 137, 170, 222, 292, 355, 456],
+    // reducciones en Sport+: soltando y con kickdown
+    down: { coastRpm: 3800, coastMax: 6000, kickRpm: 5000, kickMax: 6800, kick: 0.85 },
+    blipMs: 180, blipRpm: 250, blip: 0.7, shiftMs: 150, maxKmh: 290,
+    brap: true,                     // "burp" del cambio en Sport+ al subir a fondo
+    tire: 2.133, final: 3.15,
+    popsFx: { level: 1.1, rate: 5 },   // petardeos fuertes y frecuentes al soltar y al reducir
+    // recording: { file: "audio/m3.wav", rpmLo: 2000, rpmHi: 7200 },   // activar cuando haya grabación de cabina
     power: [[0, 0], [1000, 60], [2000, 150], [2750, 245], [4000, 330], [5000, 375], [5500, 395], [6250, 375], [7000, 350], [7250, 340]],
     synth: {
       // orden de encendido 1-5-3-6-2-4 · un turbo por cada 3 cilindros
       fire: [0, 120, 240, 360, 480, 600], bank: [1, 0.93, 1, 0.93, 1, 0.93],
-      pw: 120, idleAmp: 0.3, jitter: 0.05, rough: 0.9, pops: 20,
+      pw: 120, idleAmp: 0.3, jitter: 0.05, rough: 0.9, pops: 0, cutDip: 0.5,   // los petardeos van en js/pops.js
       exDelay: 0.0034, exFb: 0.4, inDelay: 0.0013, inFb: 0.3,
       toneMix: 0.8, pulseMix: 0.4, hiss: 0.15, mech: 0.1,
       // en cabina gran parte del sonido es el sonido activo de BMW por los altavoces: órdenes bajos dominantes
@@ -61,6 +74,5 @@ window.CARS = {
     cabin: { drive: 3.2, shelfHz: 95, raspHz: 700, peaks: [[95, 4, 1], [440, 3, 1.2], [1200, -3, 1]], lp: [1100, 3600],
              intake: 0.2, exhaust: 1, mech: 0.05, scream: 0.3, wet: 0.22, turbo: 0.7 },
     whine: { teeth: [0, 0, 0, 0, 0, 0, 0, 0], gear: 0, ringTeeth: 41, diff: 0.002 },
-    shiftFx: { up: { clack: 0.03, thud: 0.12 }, down: { clack: 0.02, thud: 0.08 } },
   },
 };

@@ -22,6 +22,8 @@ class Drivetrain {
     const c = this.car, n = c.gearTop.length, D = c.down;
     const target = g => c.idle + Math.max(0, speed) / (c.gearTop[g - 1] / 3.6) * (c.red - c.idle);
     let shift = null;
+    if (this.prevThr > 0.15 && throttle <= 0.15) this.liftAt = now;
+    this.prevThr = throttle;
     // a fondo sube a upFull (como el juego); a medio gas o crucero sube antes (en el Tesla casi nunca se va a fondo)
     const up = c.upLight + (c.upFull - c.upLight) * Math.pow(throttle, 1.4);
     const since = now - this.lastShiftAt;
@@ -34,7 +36,13 @@ class Drivetrain {
       // a medio gas, cambios separados ≥ 0,6 s
       const easing = throttle < this.thrRef - 0.03;          // soltando: el PDK mantiene la marcha
       const canUp = (throttle >= 0.06 && !easing) || target(this.gear) > c.upFull;
-      if (this.gear < n && canUp && target(this.gear) >= up && since >= (throttle > 0.8 ? 0 : 600)) {
+      if (this.gear < n && target(this.gear) > c.red) {
+        // pasado del corte (la velocidad del GPS sube de golpe, o se arrancó ya en marcha):
+        // sube directo a la marcha que corresponde, saltando las de en medio
+        let g2 = this.gear + 1;
+        while (g2 < n && target(g2) > Math.max(up, c.upLight + 1500)) g2++;
+        this.gear = g2; shift = "up"; this.lastShiftAt = now; this.shiftUntil = now + c.shiftMs;
+      } else if (this.gear < n && canUp && target(this.gear) >= up && since >= (throttle > 0.8 ? 0 : 600)) {
         this.gear++; shift = "up"; this.lastShiftAt = now; this.shiftUntil = now + c.shiftMs;
       } else if (this.gear > 1) {
         const after = target(this.gear - 1);
@@ -60,7 +68,12 @@ class Drivetrain {
     const rate = now < this.shiftUntil ? 28 : 12;
     const k = 1 - Math.pow(1 - Math.min(1, rate / 120), dt * 120);
     this.rpm += (Math.min(c.red + 150, goal) - this.rpm) * k;
-    return { rpm: this.rpm, gear: this.gear, load: throttle, blip, overrun: 0, shift };
+    // retención (para los petardeos de los coches que los tienen): fuerte al soltar con vueltas y al reducir
+    const norm = Math.max(0, Math.min(1, (this.rpm - c.idle) / (c.red - c.idle)));
+    let overrun = 0;
+    if (throttle < 0.1 && norm > 0.2) overrun = Math.exp(-(now - this.liftAt) / 2200) * Math.min(1, norm * 1.4);
+    if (now < this.blipUntil + 150) overrun = Math.max(overrun, 0.7);
+    return { rpm: this.rpm, gear: this.gear, load: throttle, blip, overrun, shift };
   }
 
   step(dt, speed, throttle, now = performance.now()) {

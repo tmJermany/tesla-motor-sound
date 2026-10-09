@@ -15,6 +15,7 @@ class EngineSound {
   constructor(ctx, car, opts = {}) {
     this.ctx = ctx; this.car = car;
     this.volume = opts.volume ?? 0.75;
+    this.noPops = !!opts.noPops; this.popsUntil = 0; this.lastUpdate = 0;
     this.N = null; this.boost = 0; this.prevPedal = 0;
   }
 
@@ -110,7 +111,16 @@ class EngineSound {
     master.connect(comp).connect(vol).connect(ctx.destination);
     master.gain.setTargetAtTime(1, t, 0.4);
 
-    this.N = { eng, vg, lowShelf, rasp, lp, screamBp, screamG, inBp, inG, mechG, gw, gwG, dw, dwG, tW, tWG, tNG, tNBp, master, vol, srcs };
+    // petardeos (car.popsFx): con su propio limitador, sin pasar por el compresor del motor
+    let pops = null;
+    if (car.popsFx && !this.noPops) {
+      const plim = ctx.createDynamicsCompressor(); plim.threshold.value = -4; plim.ratio.value = 20; plim.attack.value = 0.001; plim.release.value = 0.08;
+      const pg = ctx.createGain(); pg.gain.value = car.popsFx.level;
+      pg.connect(plim).connect(vol);
+      pops = new Pops(ctx, pg);
+    }
+
+    this.N = { eng, vg, lowShelf, rasp, lp, screamBp, screamG, inBp, inG, mechG, gw, gwG, dw, dwG, tW, tWG, tNG, tNBp, master, vol, srcs, pops };
   }
 
   // ---------- control en tiempo real ----------
@@ -158,6 +168,7 @@ class EngineSound {
       if (this.prevPedal > 0.15 && pedal <= 0.15 && this.boost > 0.35) this._blowOff(this.boost);
     }
     this.prevPedal = pedal;
+    popTrigger(this, N.pops, overrun, t);
   }
 
   // Cambio de marcha. Con `car.brap` (PDK): al subir a fondo, 85 ms cortando 1 de cada 3 explosiones
@@ -233,6 +244,12 @@ class EngineSound {
 }
 
 function clamp01(v) { return Math.max(0, Math.min(1, v)); }
+// Ráfagas de petardeo en retención: más seguidas cuanto más fuerte la retención (car.popsFx.rate ráfagas/s a tope)
+function popTrigger(self, pops, overrun, t) {
+  const dt = self.lastUpdate ? Math.min(0.1, t - self.lastUpdate) : 0; self.lastUpdate = t;
+  if (!pops || overrun < 0.08 || t < self.popsUntil) return;
+  if (Math.random() < overrun * self.car.popsFx.rate * dt) self.popsUntil = pops.burst(overrun, t + 0.01) + 0.05 + Math.random() * 0.25;
+}
 function interp(pts, x) {
   if (x <= pts[0][0]) return pts[0][1];
   for (let i = 1; i < pts.length; i++) if (x <= pts[i][0]) {
