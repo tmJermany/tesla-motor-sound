@@ -86,6 +86,9 @@
   body.dash.ui .overlay { opacity: 1; pointer-events: auto; }
   .overlay .btn { padding: 0 26px; background: rgba(20,23,28,.9); }
   .overlay .vol { width: min(340px, 100%); background: rgba(20,23,28,.9); border: 1px solid var(--line); border-radius: 14px; padding: 0 18px; min-height: 64px; }
+  .tapaudio { position: fixed; inset: 0; z-index: 20; border: 0; background: rgba(0,0,0,.78); color: var(--fg);
+              font-size: 34px; font-weight: 800; letter-spacing: 1px; display: flex; align-items: center; justify-content: center; padding: 24px; text-align: center; }
+  .tapaudio span { border: 3px solid var(--accent); color: var(--accent); border-radius: 20px; padding: 28px 40px; }
   [hidden] { display: none !important; }
   @media (prefers-reduced-motion: reduce) { .pill.wait i { animation: none; } .overlay { transition: none; } }
 </style>
@@ -140,6 +143,9 @@
   </div>
 </div>
 
+<!-- Aparece si el navegador pausó el audio y hace falta un toque para reanudarlo -->
+<button class="tapaudio" id="tapAudio" hidden><span>Toca la pantalla para activar el sonido</span></button>
+
 <!-- Controles flotantes del modo solo tablero (aparecen al tocar la pantalla) -->
 <div class="overlay" id="overlay">
   <button class="btn" id="oStart"><span>Apagar motor</span></button>
@@ -152,10 +158,12 @@
 </div>
 
 <!-- Módulos: js/engine-dsp.js (síntesis), js/cars.js (datos), js/drivetrain.js (caja), js/engine-sound.js (audio de cabina) -->
-<script src="js/engine-dsp.js"></script>
-<script src="js/cars.js"></script>
-<script src="js/drivetrain.js"></script>
-<script src="js/engine-sound.js"></script>
+<script src="js/engine-dsp.js?v=20261008d"></script>
+<script src="js/cars.js?v=20261008d"></script>
+<script src="js/drivetrain.js?v=20261008d"></script>
+<script src="js/engine-sound.js?v=20261008d"></script>
+<script src="js/pops.js?v=20261008d"></script>
+<script src="js/recorded-engine.js?v=20261008d"></script>
 <script>
 // ================== ESTADO ==================
 let carKey = lsGet("car") || "gt3rs"; if (!CARS[carKey]) carKey = "gt3rs";
@@ -196,7 +204,7 @@ function startGps() {
     v = Math.max(0, v || 0);
     if (lastFix) {
       const dts = (now - lastFix.now) / 1000;
-      if (dts > 0.2) accel = accel * 0.35 + ((v - lastFix.v) / dts) * 0.65;
+      if (dts > 0.2) accel = clamp(accel * 0.25 + ((v - lastFix.v) / dts) * 0.75, -9, 6);
     }
     lastFix = { now, ts: pos.timestamp, lat: pos.coords.latitude, lon: pos.coords.longitude, v };
     gpsSpeed = v; gpsInfo.acc = Math.round(pos.coords.accuracy);
@@ -223,9 +231,10 @@ function tick() {
     const age = lastFix ? Math.min(1.2, (now - lastFix.now) / 1000) : 0;
     const predicted = Math.max(0, gpsSpeed + accel * age);
     speed += (predicted - speed) * Math.min(1, dt * 4);
-    // acelerador estimado: 3 m/s² = a fondo; frenando = suelto; a velocidad constante ≈ 0,12
-    const want = accel > 0.25 ? Math.max(0.2, clamp(accel / 3.0, 0, 1)) : (accel < -0.4 ? 0 : (speed > 2 ? 0.12 : 0));
-    throttle += (want - throttle) * Math.min(1, dt * 5);
+    // acelerador estimado: ≥ 1,8 m/s² = a fondo; frenando = suelto; a velocidad constante ≈ 0,25.
+    // Sube rápido y baja despacio: al acelerar fuerte el motor estira las marchas y suena lleno.
+    const want = accel > 0.3 ? clamp(0.3 + accel / 2.6, 0, 1) : (accel < -0.4 ? 0 : (speed > 2 ? 0.25 : 0));
+    throttle += (want - throttle) * Math.min(1, dt * (want > throttle ? 8 : 3));
     if (lastFix && now - lastFix.now > 4000) { gpsSpeed *= 0.97; accel *= 0.9; }
   }
   trip += speed * dt / 1000;
@@ -538,7 +547,10 @@ function frame(ts) {
 requestAnimationFrame(frame);
 
 // ================== CONTROLES ==================
-function setStatus(t, cls) { $("status").textContent = t; $("status").className = "status" + (cls ? " " + cls : ""); }
+function setStatus(t, cls) {
+  const s = soundNote && !t.startsWith("Sonido") && running ? `${t} · ${soundNote}` : t;
+  $("status").textContent = s; $("status").className = "status" + (cls ? " " + cls : "");
+}
 function selectCar(k) {
   carKey = k; CAR = CARS[k]; lsSet("car", k);
   document.body.dataset.car = k;
@@ -547,9 +559,13 @@ function selectCar(k) {
   if (running) { engine?.stop(); startEngine(); }
 }
 async function startEngine() {
-  engine = new EngineSound(ctx, CAR, { volume: $("vol").value / 100 });
-  await engine.start();
+  const Cls = CAR.recording ? RecordedEngine : EngineSound;
+  const e = engine = new Cls(ctx, CAR, { volume: $("vol").value / 100 });
+  await e.start();
+  soundNote = e.error ? `Sonido sintetizado (sin grabación: ${e.error})` : e.info ? `Sonido: ${e.info}` : "Sonido sintetizado";
+  setStatus(soundNote, e.error ? "err" : "ok");
 }
+let soundNote = "";
 document.querySelectorAll(".tab").forEach(b => b.onclick = () => selectCar(b.dataset.car));
 selectCar(carKey);
 
@@ -561,7 +577,10 @@ function setRunningUi() {
 async function toggleEngine() {
   if (!running) {
     try {
-      if (!ctx || ctx.state === "closed") ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: "interactive" });
+      if (!ctx || ctx.state === "closed") {
+        ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: "interactive" });
+        ctx.onstatechange = () => ensureAudio();
+      }
       await ctx.resume();
       drive.rpm = CAR.idle * 2.2; startedAt = performance.now(); // pequeño acelerón al arrancar
       await startEngine();
@@ -570,11 +589,32 @@ async function toggleEngine() {
     if (mode === "gps") { startGps(); enterDash(); } else setStatus("Modo prueba: mantén pulsado el acelerador.", "ok");
     try { wakeLock = await navigator.wakeLock?.request("screen"); } catch {}
   } else {
-    running = false; engine?.stop(); engine = null; stopGps(); setRunningUi();
+    running = false; engine?.stop(); engine = null; stopGps(); setRunningUi(); $("tapAudio").hidden = true;
     setStatus("Motor apagado."); try { wakeLock?.release(); } catch {}
   }
 }
 $("start").onclick = toggleEngine;
+
+// ---------- el audio no se queda pausado ----------
+// El navegador pausa el audio si la web queda tapada, se apaga la pantalla o cambia la fuente de sonido.
+// Se intenta reanudar solo; si el navegador exige un toque, aparece un aviso a pantalla completa.
+function ensureAudio() {
+  if (!running || !ctx || ctx.state === "closed") return;
+  if (ctx.state !== "running") {
+    ctx.resume().catch(() => {});
+    setTimeout(() => { if (running && ctx && ctx.state !== "running") $("tapAudio").hidden = false; }, 500);
+  } else $("tapAudio").hidden = true;
+}
+async function keepScreenOn() {
+  if (!running || document.hidden) return;
+  try { if (!wakeLock || wakeLock.released) wakeLock = await navigator.wakeLock?.request("screen"); } catch {}
+}
+$("tapAudio").onclick = async () => { try { await ctx?.resume(); } catch {} ensureAudio(); keepScreenOn(); };
+document.addEventListener("visibilitychange", () => { if (!document.hidden) { ensureAudio(); keepScreenOn(); } });
+addEventListener("focus", ensureAudio);
+addEventListener("pageshow", ensureAudio);
+document.addEventListener("pointerdown", () => { if (running && ctx && ctx.state !== "running") ctx.resume().then(ensureAudio).catch(() => {}); }, true);
+setInterval(() => { ensureAudio(); keepScreenOn(); }, 2000);
 $("oStart").onclick = () => { toggleEngine(); showUi(); };
 
 function setMode(m) {
